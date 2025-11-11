@@ -37,7 +37,6 @@ st.markdown(
 def calc_distance(lat1, lon1, lat2, lon2):
     return math.sqrt((lat1 - lat2)**2 + (lon1 - lon2)**2)
 
-
 # -------------------------------
 # Load CSV Data
 @st.cache_data
@@ -47,26 +46,43 @@ def load_data(csv_file):
     df['unit_price'] = pd.to_numeric(df['unit_price'], errors='coerce')
     return df
 
-
-
-#df = load_data("https://brunojornadadedados.s3.us-east-1.amazonaws.com/api-realtor_city/redfin_solding_all.csv")
 df = load_data("../dataset/bronze/Houston_bronze.csv")
-
 
 # -------------------------------
 # Sidebar filtros
-st.sidebar.header("Filtros")
+st.sidebar.header("Filters")
 min_unit_price = int(df['unit_price'].min())
 max_unit_price = int(df['unit_price'].max())
-unit_price_range = st.sidebar.slider("Faixa de preço", min_unit_price, max_unit_price, (min_unit_price, max_unit_price))
+unit_price_range = st.sidebar.slider("Price Slider", min_unit_price, max_unit_price, (min_unit_price, max_unit_price))
 
 filtered_df = df[(df['unit_price'] >= unit_price_range[0]) & (df['unit_price'] <= unit_price_range[1])]
 
-beds_quantity = st.sidebar.multiselect("Quantidade de quartos", options=sorted(df['unit_beds'].dropna().unique()), default=sorted(df['unit_beds'].dropna().unique()))
+#beds_quantity = st.sidebar.multiselect("Quantidade de quartos", options=sorted(df['unit_beds'].dropna().unique()), default=sorted(df['unit_beds'].dropna().unique()))
+#if beds_quantity:
+#    filtered_df = filtered_df[filtered_df['unit_beds'].isin(beds_quantity)]
+#
+#st.write(f"Imóveis encontrados: {len(filtered_df)}")
+# Lista ordenada das opções de quartos
+bed_options = sorted(df['unit_beds'].dropna().unique())
+
+# Define o valor padrão: dois primeiros tipos de quartos
+default_beds = bed_options[:2]  # Exemplo: [1, 2]
+
+# Filtro na barra lateral
+beds_quantity = st.sidebar.multiselect(
+    "Beds Quantity",
+    options=bed_options,
+    default=default_beds
+)
+
+# Aplica o filtro apenas se houver seleção
 if beds_quantity:
     filtered_df = filtered_df[filtered_df['unit_beds'].isin(beds_quantity)]
 
-st.write(f"Imóveis encontrados: {len(filtered_df)}")
+st.write(f"Properties Found: {len(filtered_df)}")
+
+
+
 
 # -------------------------------
 # Criar mapa centralizado
