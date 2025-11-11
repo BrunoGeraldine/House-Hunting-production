@@ -2,10 +2,13 @@
 
 # app.py - Real Estate Interactive Map Visualization
 import math
+import time
 import folium
+import requests
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
+from typing import List, Dict
 
 #st.title("Interactive Real Estate Map in Houston (Clickable)")
 
@@ -50,7 +53,22 @@ df = load_data("../dataset/bronze/Houston_bronze.csv")
 
 # -------------------------------
 # Sidebar filtros
+
 st.sidebar.header("Filters")
+city_options = sorted(df['City'].dropna().unique())
+
+# Define o valor padrão: dois primeiros tipos de quartos
+default_city = city_options[:1]  # Exemplo: [1, 2]
+
+# Filtro na barra lateral
+city_options = st.sidebar.multiselect(
+    "City Name",
+    options=city_options,
+    default=default_city
+)
+
+
+
 min_unit_price = int(df['unit_price'].min())
 max_unit_price = int(df['unit_price'].max())
 unit_price_range = st.sidebar.slider("Price Slider", min_unit_price, max_unit_price, (min_unit_price, max_unit_price))
@@ -66,7 +84,7 @@ filtered_df = df[(df['unit_price'] >= unit_price_range[0]) & (df['unit_price'] <
 bed_options = sorted(df['unit_beds'].dropna().unique())
 
 # Define o valor padrão: dois primeiros tipos de quartos
-default_beds = bed_options[:2]  # Exemplo: [1, 2]
+default_beds = bed_options[:1]  # Exemplo: [1, 2]
 
 # Filtro na barra lateral
 beds_quantity = st.sidebar.multiselect(
@@ -76,8 +94,11 @@ beds_quantity = st.sidebar.multiselect(
 )
 
 # Aplica o filtro apenas se houver seleção
-if beds_quantity:
+if city_options:
+    filtered_df = filtered_df[filtered_df['City'].isin(city_options)]
+elif beds_quantity:
     filtered_df = filtered_df[filtered_df['unit_beds'].isin(beds_quantity)]
+
 
 st.write(f"Properties Found: {len(filtered_df)}")
 
@@ -97,11 +118,20 @@ supermarkets = pd.DataFrame([
     {"name": "Walmart", "lat": 30.069205213415394, "lon": -95.41074417927655}, 
     {"name": "Walmart", "lat": 30.003462974400296, "lon": -95.47321130269982}, 
     {"name": "Walmart", "lat": 30.210006622053395, "lon": -95.45890834239746}, 
+    {"name": "Walmart", "lat": 29.99875236246435, "lon": -95.48435824348604},
+
+    {"name": "Walmart", "lat": 29.834318561494314, "lon": -95.37718432377757},
+    {"name": "Walmart", "lat": 29.921839651157725, "lon": -95.41494982585185 },
+    {"name": "Walmart", "lat": 29.790827182232288, "lon": -95.4664482377713},
+    {"name": "Walmart", "lat": 29.71869709568205,  "lon": -95.31263964750518},
+    {"name": "Walmart", "lat": 29.633982414421375, "lon": -95.23848193434117},
+    {"name": "Walmart", "lat": 29.729430477294002, "lon": -95.46576159227905},
+
 
     {"name": "Target", "lat": 30.17026853288784, "lon": -95.45272148246633},
     {"name": "Target", "lat": 30.08786626858349, "lon": -95.52081306108647},
     {"name": "Target", "lat": 30.05415756331383, "lon": -95.43451647239814},
-    {"name": "Target", "lat": 29.975284709213717, "lon": -95.51227584550033},
+    {"name": "Target", "lat": 29.968174429425744, "lon": -95.52932449465773},
 
     {"name": "Costco", "lat": 29.955045320146994, "lon": -95.54767363049966},
 
@@ -120,6 +150,20 @@ supermarkets = pd.DataFrame([
     {"name": "H-E-B", "lat": 30.10858425535382, "lon": -95.33893543044405},
     {"name": "H-E-B", "lat": 30.073335948900567, "lon": -95.39858842016348},
     {"name": "H-E-B", "lat": 30.206754173199442, "lon": -95.41995005622451},
+    {"name": "H-E-B", "lat": 29.80899737111998,  "lon": -95.40947148759474},
+
+    {"name": "H-E-B", "lat": 29.77220034817469,  "lon": -95.39694020736101},
+    {"name": "H-E-B", "lat": 29.73986143907246,  "lon": -95.40260503267214},
+    {"name": "H-E-B", "lat": 29.716457659382975, "lon": -95.37668416517604 },
+    {"name": "H-E-B", "lat": 29.729278239408547, "lon": -95.42716026478794},
+    {"name": "H-E-B", "lat": 29.69096070864256,  "lon": -95.46458244411608},
+    {"name": "H-E-B", "lat": 29.709599466402494, "lon": -95.46544075098139},
+    {"name": "H-E-B", "lat": 29.75074159095165,  "lon": -95.48492431813655},
+    {"name": "H-E-B", "lat": 29.790228109928968, "lon": -95.53230285710245},
+    {"name": "H-E-B", "lat": 29.738110070435127, "lon": -95.58624744590254},
+
+
+
 
 ])
 
@@ -133,6 +177,8 @@ parks = pd.DataFrame([
     {"name": "Pundt Park", "lat": 30.058789, "lon": -95.375004},
     {"name": "Champions Golf Club", "lat": 29.98422815376261, "lon": -95.52355299583914},
     {"name": "Champion Forest Park", "lat": 29.992463765268795, "lon": -95.54466320432775},
+    {"name": "Exploration Park", "lat": 29.71814292063345, "lon": -95.73578466356696},
+    {"name": "Bear Creek Pioneers Park", "lat": 29.829654658143866, "lon": -95.61164414993415},
 ])
 
 
