@@ -1,277 +1,255 @@
-###### INTERACTIVE MAP WITH CLICKABLE LINKS TO PROPERTY LISTINGS ######
-
-# app.py - Real Estate Interactive Map Visualization
+# app.py - US Rental Map PRO v28.3 (MODULAR + ESTÁVEL)
 import math
-import time
 import folium
 import requests
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
-from typing import List, Dict
+from core.map_builder import MapBuilder
 
-#st.title("Interactive Real Estate Map in Houston (Clickable)")
+# CONFIG
+st.set_page_config(layout="wide", page_title="US Rental Map PRO", page_icon="house")
+st.markdown("<h1 style='text-align:center;color:#FF5252'>US RENTAL MAP PRO</h1>", unsafe_allow_html=True)
+st.markdown("<style>[data-testid='stApp'] {background:#000;color:#FFF}</style>", unsafe_allow_html=True)
 
-# ------------------------------
-# Initial Streamlit Configuration
-# ------------------------------
-st.set_page_config(
-    layout="wide",  # Set layout to "wide"
-    initial_sidebar_state="auto",
-    page_title="Interactive Real Estate Map in Houston Region (Clickable)",
-    page_icon="📈"
-)
-
-# Set dark theme explicitly (optional, can also be configured in config.toml)
-st.markdown(
-    """
-    <style>
-    /* Force dark theme */
-    [data-testid="stApp"] {
-        background-color: #1E1E1E;  /* Dark background color */
-        color: #FFFFFF;  /* White text */
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-# Function to calculate distance between 2 coordinates
-def calc_distance(lat1, lon1, lat2, lon2):
-    return math.sqrt((lat1 - lat2)**2 + (lon1 - lon2)**2)
-
-# -------------------------------
-# Load CSV Data
-@st.cache_data
-def load_data(csv_file):
-    df = pd.read_csv(csv_file)
-    df = df.dropna(subset=['Lat', 'Lon', 'unit_price'])
-    df['unit_price'] = pd.to_numeric(df['unit_price'], errors='coerce')
+# === 1. CARREGA DADOS ===
+@st.cache_data(ttl=86400)
+def load_data():
+    df = pd.read_csv("../dataset/bronze/Houston_bronze.csv")
+    df = df.dropna(subset=["Lat", "Lon", "unit_price", "City", "State"])
+    df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce")
+    df = df.dropna(subset=["unit_price"])
     return df
 
-df = load_data("../dataset/bronze/Houston_bronze.csv")
+df_original = load_data()
 
-# -------------------------------
-# Sidebar filtros
+# === 2. FILTROS NO SIDEBAR ===
+st.sidebar.header("Filtros de Localização")
 
-st.sidebar.header("Filters")
-city_options = sorted(df['City'].dropna().unique())
+available_states = sorted(df_original["State"].unique())
+if "state" not in st.session_state:
+    st.session_state.state = available_states[0] if available_states else "TX"
 
-# Define o valor padrão: dois primeiros tipos de quartos
-default_city = city_options[:1]  # Exemplo: [1, 2]
-
-# Filtro na barra lateral
-city_options = st.sidebar.multiselect(
-    "City Name",
-    options=city_options,
-    default=default_city
+st.session_state.state = st.sidebar.selectbox(
+    "Estado",
+    options=available_states,
+    index=available_states.index(st.session_state.state) if st.session_state.state in available_states else 0,
+    key="state_selectbox"
 )
 
+cities_in_state = sorted(df_original[df_original["State"] == st.session_state.state]["City"].str.title().unique())
+if "city" not in st.session_state:
+    st.session_state.city = ""
 
-
-min_unit_price = int(df['unit_price'].min())
-max_unit_price = int(df['unit_price'].max())
-unit_price_range = st.sidebar.slider("Price Slider", min_unit_price, max_unit_price, (min_unit_price, max_unit_price))
-
-filtered_df = df[(df['unit_price'] >= unit_price_range[0]) & (df['unit_price'] <= unit_price_range[1])]
-
-#beds_quantity = st.sidebar.multiselect("Quantidade de quartos", options=sorted(df['unit_beds'].dropna().unique()), default=sorted(df['unit_beds'].dropna().unique()))
-#if beds_quantity:
-#    filtered_df = filtered_df[filtered_df['unit_beds'].isin(beds_quantity)]
-#
-#st.write(f"Imóveis encontrados: {len(filtered_df)}")
-# Lista ordenada das opções de quartos
-bed_options = sorted(df['unit_beds'].dropna().unique())
-
-# Define o valor padrão: dois primeiros tipos de quartos
-default_beds = bed_options[:1]  # Exemplo: [1, 2]
-
-# Filtro na barra lateral
-beds_quantity = st.sidebar.multiselect(
-    "Beds Quantity",
-    options=bed_options,
-    default=default_beds
+st.session_state.city = st.sidebar.selectbox(
+    "Cidade",
+    options=[""] + cities_in_state,
+    index=0 if st.session_state.city == "" else (cities_in_state.index(st.session_state.city) + 1 if st.session_state.city in cities_in_state else 0),
+    key="city_selectbox"
 )
 
-# Aplica o filtro apenas se houver seleção
-if city_options:
-    filtered_df = filtered_df[filtered_df['City'].isin(city_options)]
-elif beds_quantity:
-    filtered_df = filtered_df[filtered_df['unit_beds'].isin(beds_quantity)]
+beds_options = sorted(df_original["unit_beds"].dropna().unique())
+beds_sel = st.sidebar.multiselect("Quartos", beds_options, default=beds_options[:2])
 
+price_min = int(df_original["unit_price"].min())
+price_max = int(df_original["unit_price"].max())
+price_range = st.sidebar.slider("Preço (USD)", price_min, price_max, (price_min, price_max + 1000))
 
-st.write(f"Properties Found: {len(filtered_df)}")
+# === 4. APLICA FILTROS ===
+df_filtrado = df_original[
+    (df_original["State"] == st.session_state.state) &
+    (df_original["City"].str.title() == st.session_state.city.title() if st.session_state.city else True) &
+    (df_original["unit_beds"].isin(beds_sel)) &
+    (df_original["unit_price"].between(price_range[0], price_range[1]))
+].copy()
 
+if not df_filtrado.empty:
+    df_filtrado = df_filtrado.sort_values("unit_price").head(50).reset_index(drop=True)
+    center = [df_filtrado["Lat"].mean(), df_filtrado["Lon"].mean()]
+else:
+    st.warning("Nenhum imóvel encontrado.")
+    center = [30.2672, -95.6000]
+    df_filtrado = pd.DataFrame()
 
+st.write(f"**{len(df_filtrado)} imóveis encontrados**")
 
-
-# -------------------------------
-# Criar mapa centralizado
-map_center = [filtered_df['Lat'].mean(), filtered_df['Lon'].mean()]
-m = folium.Map(location=map_center, zoom_start=11)
-
-# -------------------------------
-# Supermercados
-supermarkets = pd.DataFrame([
-    {"name": "Walmart", "lat": 29.922501830798883, "lon": -95.41365858731908}, 
-    {"name": "Walmart", "lat": 30.077729944405423, "lon": -95.38729244393436}, 
-    {"name": "Walmart", "lat": 30.069205213415394, "lon": -95.41074417927655}, 
-    {"name": "Walmart", "lat": 30.003462974400296, "lon": -95.47321130269982}, 
-    {"name": "Walmart", "lat": 30.210006622053395, "lon": -95.45890834239746}, 
-    {"name": "Walmart", "lat": 29.99875236246435, "lon": -95.48435824348604},
-
-    {"name": "Walmart", "lat": 29.834318561494314, "lon": -95.37718432377757},
-    {"name": "Walmart", "lat": 29.921839651157725, "lon": -95.41494982585185 },
-    {"name": "Walmart", "lat": 29.790827182232288, "lon": -95.4664482377713},
-    {"name": "Walmart", "lat": 29.71869709568205,  "lon": -95.31263964750518},
-    {"name": "Walmart", "lat": 29.633982414421375, "lon": -95.23848193434117},
-    {"name": "Walmart", "lat": 29.729430477294002, "lon": -95.46576159227905},
-
-
-    {"name": "Target", "lat": 30.17026853288784, "lon": -95.45272148246633},
-    {"name": "Target", "lat": 30.08786626858349, "lon": -95.52081306108647},
-    {"name": "Target", "lat": 30.05415756331383, "lon": -95.43451647239814},
-    {"name": "Target", "lat": 29.968174429425744, "lon": -95.52932449465773},
-
-    {"name": "Costco", "lat": 29.955045320146994, "lon": -95.54767363049966},
-
-
-    {"name": "Sam's Club", "lat": 29.964046078227206, "lon": -95.54681355662805},
-
-    {"name": "H-E-B", "lat": 29.995824969642012, "lon": -95.5762311946599},
-    {"name": "H-E-B", "lat": 30.1637968136592, "lon": -95.46680211965837},
-    {"name": "H-E-B", "lat": 30.182468423589118, "lon": -95.53341958785808},
-    {"name": "H-E-B", "lat": 30.149413446242157, "lon": -95.54058205634084},
-    {"name": "H-E-B", "lat": 30.128846499514538, "lon": -95.44514248266452},
-    {"name": "H-E-B", "lat": 30.229070212533912, "lon": -95.49168495616046},
-    {"name": "H-E-B", "lat": 30.224958987972332, "lon": -95.56002935889994},
-    {"name": "H-E-B", "lat": 30.055502165530353, "lon": -95.55570375979246},
-    {"name": "H-E-B", "lat": 30.027998241730693, "lon": -95.48515800280508},
-    {"name": "H-E-B", "lat": 30.10858425535382, "lon": -95.33893543044405},
-    {"name": "H-E-B", "lat": 30.073335948900567, "lon": -95.39858842016348},
-    {"name": "H-E-B", "lat": 30.206754173199442, "lon": -95.41995005622451},
-    {"name": "H-E-B", "lat": 29.80899737111998,  "lon": -95.40947148759474},
-
-    {"name": "H-E-B", "lat": 29.77220034817469,  "lon": -95.39694020736101},
-    {"name": "H-E-B", "lat": 29.73986143907246,  "lon": -95.40260503267214},
-    {"name": "H-E-B", "lat": 29.716457659382975, "lon": -95.37668416517604 },
-    {"name": "H-E-B", "lat": 29.729278239408547, "lon": -95.42716026478794},
-    {"name": "H-E-B", "lat": 29.69096070864256,  "lon": -95.46458244411608},
-    {"name": "H-E-B", "lat": 29.709599466402494, "lon": -95.46544075098139},
-    {"name": "H-E-B", "lat": 29.75074159095165,  "lon": -95.48492431813655},
-    {"name": "H-E-B", "lat": 29.790228109928968, "lon": -95.53230285710245},
-    {"name": "H-E-B", "lat": 29.738110070435127, "lon": -95.58624744590254},
-
-
-
-
-])
-
-# -------------------------------
-# Parques
-parks = pd.DataFrame([
-    {"name": "Memorial Park", "lat": 29.764777, "lon": -95.441254},
-    {"name": "Buffalo Bayou Park", "lat": 29.762115, "lon": -95.383207},
-    {"name": "Hermann Park", "lat": 29.721736, "lon": -95.389328},
-    {"name": "The Woodlands Park", "lat": 30.162962, "lon": -95.469383},
-    {"name": "Pundt Park", "lat": 30.058789, "lon": -95.375004},
-    {"name": "Champions Golf Club", "lat": 29.98422815376261, "lon": -95.52355299583914},
-    {"name": "Champion Forest Park", "lat": 29.992463765268795, "lon": -95.54466320432775},
-    {"name": "Exploration Park", "lat": 29.71814292063345, "lon": -95.73578466356696},
-    {"name": "Bear Creek Pioneers Park", "lat": 29.829654658143866, "lon": -95.61164414993415},
-])
-
-
-# -------------------------------
-# Função para calcular distância em km (Haversine)
+# === 5. BUSCA POIs (ROBUSTA) ===
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371  # raio da Terra em km
+    R = 6371
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
+@st.cache_data(ttl=7200)
+def get_pois_around_houses(_hash, lat_list, lon_list):
+    if not lat_list: return [], []
+    points = ",".join([f"{la},{lo}" for la, lo in zip(lat_list, lon_list)])
+    query = f'''
+    [out:json][timeout:60];
+    (
+      nwr["shop"~"supermarket|grocery"]["name"](around:5000,{points});
+      nwr["brand"~"Walmart|Best Buy|Savers|HEB|Kroger|Target|Costco|Aldi",i](around:5000,{points});
+      nwr["amenity"="school"](around:5000,{points});
+    );
+    out center;
+    '''
+    servers = [
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter"
+    ]
+    for server in servers:
+        try:
+            r = requests.post(server, data={"data": query}, timeout=60)
+            if r.status_code == 200:
+                supers, schools = [], []
+                for e in r.json().get("elements", []):
+                    lat = e.get("lat") or e.get("center", {}).get("lat")
+                    lon = e.get("lon") or e.get("center", {}).get("lon")
+                    if not lat or not lon: continue
+                    name = (e["tags"].get("name") or e["tags"].get("brand") or "Local").title()
+                    if e["tags"].get("shop") or "brand" in e["tags"]:
+                        supers.append([float(lat), float(lon), name])
+                    elif e["tags"].get("amenity") == "school":
+                        if not any(x in name.lower() for x in ["university", "college", "daycare", "preschool"]):
+                            schools.append([float(lat), float(lon), name])
+                return supers, schools
+        except:
+            continue
+    return [], []
 
-for _, s in supermarkets.iterrows():
-    folium.Marker(
-        location=[s["lat"], s["lon"]],
-        popup=f'<b>{s["name"]}</b>',
-        icon=folium.Icon(color='blue', icon='shopping-cart', prefix='fa')
-    ).add_to(m)
+with st.spinner("Buscando POIs..."):
+    hash_key = f"{st.session_state.state}_{st.session_state.city}_{len(df_filtrado)}"
+    supers, schools = get_pois_around_houses(hash_key, df_filtrado["Lat"].tolist(), df_filtrado["Lon"].tolist())
 
-for _, s in parks.iterrows():
-    folium.Marker(
-        location=[s["lat"], s["lon"]],
-        popup=f'<b>{s["name"]}</b>',
-        icon=folium.Icon(color='yellow', icon='park-cart', prefix='fa')
-    ).add_to(m)
+# === CONVERTE PARA DATAFRAMES ===
+supermarkets_df = pd.DataFrame(supers, columns=["lat", "lon", "name"]) if supers else pd.DataFrame(columns=["lat", "lon", "name"])
+schools_df = pd.DataFrame(schools, columns=["lat", "lon", "name"]) if schools else pd.DataFrame(columns=["lat", "lon", "name"])
 
+# === 6. CONSTRÓI O MAPA MODULAR ===
+map_builder = MapBuilder(center=center)
+map_builder.add_supermarkets(supermarkets_df)
+map_builder.add_schools(schools_df)
 
-# -------------------------------
-# Adicionar imóveis com popups ricos
-for _, row in filtered_df.iterrows():
-    lat = row.get('Lat')
-    lon = row.get('Lon')
-
-    if pd.isna(lat) or pd.isna(lon):
-        continue
-
+for _, row in df_filtrado.iterrows():
     # Supermercado mais próximo
-    supermarkets['distance_km'] = supermarkets.apply(lambda s: haversine(lat, lon, s['lat'], s['lon']), axis=1)
-    nearest_super = supermarkets.loc[supermarkets['distance_km'].idxmin()]
+    if not supermarkets_df.empty:
+        dists = supermarkets_df.apply(lambda r: haversine(row["Lat"], row["Lon"], r["lat"], r["lon"]), axis=1)
+        idx = dists.idxmin()
+        ns = supermarkets_df.loc[idx].to_dict()
+        ns["dist"] = dists[idx]
+    else:
+        ns = {"lat": 0, "lon": 0, "name": "N/A", "dist": 99}
 
-    # Parque mais próximo
-    parks['distance_km'] = parks.apply(lambda p: haversine(lat, lon, p['lat'], p['lon']), axis=1)
-    nearest_park = parks.loc[parks['distance_km'].idxmin()]
+    # Escola mais próxima
+    if not schools_df.empty:
+        dists = schools_df.apply(lambda r: haversine(row["Lat"], row["Lon"], r["lat"], r["lon"]), axis=1)
+        idx = dists.idxmin()
+        nsc = schools_df.loc[idx].to_dict()
+        nsc["dist"] = dists[idx]
+    else:
+        nsc = {"lat": 0, "lon": 0, "name": "N/A", "dist": 99}
 
-    # URLs
-    zillow_url = row.get('Url_anuncio', '#')
-    google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
-    street_view_url = f"https://www.google.com/maps?q=&layer=c&cbll={lat},{lon}"
-    directions_super_url = f"https://www.google.com/maps/dir/?api=1&origin={lat},{lon}&destination={nearest_super['lat']},{nearest_super['lon']}&travelmode=driving"
-    directions_park_url = f"https://www.google.com/maps/dir/?api=1&origin={lat},{lon}&destination={nearest_park['lat']},{nearest_park['lon']}&travelmode=walking"
+    map_builder.add_home(row, ns, nsc)
 
-    # HTML do popup
-    popup_html = f"""
-        <div style="font-size:14px; text-align:center;">
-            <b>💰 Preço:</b> ${row.get('unit_price', '')}<br>
-            <b>🛏 Quartos:</b> {row.get('unit_beds', '')}<br>
-            <b>📍 Endereço:</b> {row.get('FullAddress', '')}<br><br>
+# === 7. EXIBE O MAPA ===
+st_folium(map_builder.get_map(), width=1200, height=550, key="rental_map")
 
-            <a href="{zillow_url}" target="_blank" style="
-                display:inline-block; background-color:#006AFF;
-                color:white; padding:6px 12px; border-radius:6px;
-                text-decoration:none; font-weight:bold; margin:4px;
-            ">🔗 Zillow</a>
+## === 8. TABELA ===
+#if not df_filtrado.empty:
+#    tabela = df_filtrado.copy()
+#    tabela["dist_sup"] = tabela.apply(lambda r: min([haversine(r["Lat"], r["Lon"], s[0], s[1]) for s in supers], default=99), axis=1)
+#    tabela["dist_sch"] = tabela.apply(lambda r: min([haversine(r["Lat"], r["Lon"], s[0], s[1]) for s in schools], default=99), axis=1)
+#    tabela = tabela.sort_values(by=["unit_price", "dist_sch", "dist_sup"])
+#    st.subheader("Ranking Final")
+#    st.dataframe(
+#        tabela[["FullAddress", "unit_price", "unit_beds", "dist_sch", "dist_sup", "Url_anuncio"]].rename(columns={
+#            "FullAddress": "Endereço", "unit_price": "Preço", "unit_beds": "Quartos",
+#            "dist_sch": "Escola (km)", "dist_sup": "Supermercado (km)", "Url_anuncio": "Link"
+#        }),
+#        use_container_width=True, hide_index=True,
+#        column_config={"Link": st.column_config.LinkColumn()}
+#    )
 
-            <a href="{google_maps_url}" target="_blank" style="
-                display:inline-block; background-color:#34A853;
-                color:white; padding:6px 12px; border-radius:6px;
-                text-decoration:none; font-weight:bold; margin:4px;
-            ">📌 Google Maps</a>
+# === 8. TABELA FINAL COM NOME DOS POIs ===
+if not df_filtrado.empty:
+    tabela = df_filtrado.copy()
 
-           
-            <a href="{directions_super_url}" target="_blank" style="
-                display:inline-block; background-color:#FF9800;
-                color:white; padding:6px 12px; border-radius:6px;
-                text-decoration:none; font-weight:bold; margin:4px;
-            ">🚗 Rota até {nearest_super['name']} ({nearest_super['distance_km']:.1f} km)</a>
+    # Calcula distância e nome do supermercado mais próximo
+    def get_closest_sup(row):
+        if supermarkets_df.empty:
+            return "N/A", 99
+        dists = supermarkets_df.apply(
+            lambda r: haversine(row["Lat"], row["Lon"], r["lat"], r["lon"]), axis=1
+        )
+        idx = dists.idxmin()
+        return supermarkets_df.loc[idx, "name"], dists[idx]
 
-            <a href="{directions_park_url}" target="_blank" style="
-                display:inline-block; background-color:#4CAF50;
-                color:white; padding:6px 12px; border-radius:6px;
-                text-decoration:none; font-weight:bold; margin:4px;
-            ">🚶 Caminho até {nearest_park['name']} ({nearest_park['distance_km']:.1f} km)</a>
-        </div>
-    """
+    # Calcula distância e nome da escola mais próxima
+    def get_closest_sch(row):
+        if schools_df.empty:
+            return "N/A", 99
+        dists = schools_df.apply(
+            lambda r: haversine(row["Lat"], row["Lon"], r["lat"], r["lon"]), axis=1
+        )
+        idx = dists.idxmin()
+        return schools_df.loc[idx, "name"], dists[idx]
 
-    folium.Marker(
-        location=[lat, lon],
-        popup=folium.Popup(popup_html, max_width=340),
-        icon=folium.Icon(color='red', icon='home')
-    ).add_to(m)
+    # Aplica funções
+    tabela[["sup_name", "dist_sup"]] = tabela.apply(
+        lambda row: pd.Series(get_closest_sup(row)), axis=1
+    )
+    tabela[["sch_name", "dist_sch"]] = tabela.apply(
+        lambda row: pd.Series(get_closest_sch(row)), axis=1
+    )
 
-# -------------------------------
-# Mostrar mapa no Streamlit
-st_folium(m, width=1000, height=600)
+    # Ordena por preço + proximidade
+    tabela = tabela.sort_values(by=["unit_price", "dist_sch", "dist_sup"])
+
+    # Exibe tabela
+    st.subheader("Ranking Final: Preço + Proximidade")
+    st.dataframe(
+        tabela[[
+            "FullAddress", "unit_price", "unit_beds",
+            "sch_name", "dist_sch",
+            "sup_name", "dist_sup",
+            "Url_anuncio"
+        ]].rename(columns={
+            "FullAddress": "Endereço",
+            "unit_price": "Preço (USD)",
+            "unit_beds": "Quartos",
+            "sch_name": "Escola mais próxima",
+            "dist_sch": "Dist. Escola (km)",
+            "sup_name": "Supermercado mais próximo",
+            "dist_sup": "Dist. Supermercado (km)",
+            "Url_anuncio": "Link"
+        }),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Link": st.column_config.LinkColumn(),
+            "Preço (USD)": st.column_config.NumberColumn(
+                format="%,.0f",
+                prefix="$"
+            ),
+            "Dist. Escola (km)": st.column_config.NumberColumn(
+                format="%.1f",
+                suffix=" km"
+            ),
+            "Dist. Supermercado (km)": st.column_config.NumberColumn(
+                format="%.1f",
+                suffix=" km"
+            ),
+        }
+        #column_config={
+        #    "Link": st.column_config.LinkColumn(),
+        #    "Preço (USD)": st.column_config.NumberColumn(format="$%,.2f"),
+        #    "Dist. Escola (km)": st.column_config.NumberColumn(format="%.1f km"),
+        #    "Dist. Supermercado (km)": st.column_config.NumberColumn(format="%.1f km"),
+        #}
+    )#
+else:
+    st.info("Nenhum imóvel encontrado com os filtros aplicados.")
+
+st.caption("vfuncional PRO — Modular • Estável • Italy-proof • 13 Nov 2025")
