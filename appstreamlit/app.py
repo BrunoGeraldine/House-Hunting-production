@@ -153,24 +153,11 @@ for _, row in df_filtrado.iterrows():
 
     map_builder.add_home(row, ns, nsc)
 
+
 # === 7. EXIBE O MAPA ===
 st_folium(map_builder.get_map(), width=1200, height=550, key="rental_map")
 
-## === 8. TABELA ===
-#if not df_filtrado.empty:
-#    tabela = df_filtrado.copy()
-#    tabela["dist_sup"] = tabela.apply(lambda r: min([haversine(r["Lat"], r["Lon"], s[0], s[1]) for s in supers], default=99), axis=1)
-#    tabela["dist_sch"] = tabela.apply(lambda r: min([haversine(r["Lat"], r["Lon"], s[0], s[1]) for s in schools], default=99), axis=1)
-#    tabela = tabela.sort_values(by=["unit_price", "dist_sch", "dist_sup"])
-#    st.subheader("Ranking Final")
-#    st.dataframe(
-#        tabela[["FullAddress", "unit_price", "unit_beds", "dist_sch", "dist_sup", "Url_anuncio"]].rename(columns={
-#            "FullAddress": "Endereço", "unit_price": "Preço", "unit_beds": "Quartos",
-#            "dist_sch": "Escola (km)", "dist_sup": "Supermercado (km)", "Url_anuncio": "Link"
-#        }),
-#        use_container_width=True, hide_index=True,
-#        column_config={"Link": st.column_config.LinkColumn()}
-#    )
+
 
 # === 8. TABELA FINAL COM NOME DOS POIs ===
 if not df_filtrado.empty:
@@ -227,27 +214,27 @@ if not df_filtrado.empty:
         }),
         use_container_width=True,
         hide_index=True,
-        column_config={
-            "Link": st.column_config.LinkColumn(),
-            "Preço (USD)": st.column_config.NumberColumn(
-                format="%,.0f",
-                prefix="$"
-            ),
-            "Dist. Escola (km)": st.column_config.NumberColumn(
-                format="%.1f",
-                suffix=" km"
-            ),
-            "Dist. Supermercado (km)": st.column_config.NumberColumn(
-                format="%.1f",
-                suffix=" km"
-            ),
-        }
         #column_config={
         #    "Link": st.column_config.LinkColumn(),
-        #    "Preço (USD)": st.column_config.NumberColumn(format="$%,.2f"),
-        #    "Dist. Escola (km)": st.column_config.NumberColumn(format="%.1f km"),
-        #    "Dist. Supermercado (km)": st.column_config.NumberColumn(format="%.1f km"),
+        #    "Preço (USD)": st.column_config.NumberColumn(
+        #        format="%,.0f",
+        #        prefix="$"
+        #    ),
+        #    "Dist. Escola (km)": st.column_config.NumberColumn(
+        #        format="%.1f",
+        #        suffix=" km"
+        #    ),
+        #    "Dist. Supermercado (km)": st.column_config.NumberColumn(
+        #        format="%.1f",
+        #        suffix=" km"
+        #    ),
         #}
+        column_config={
+            "Link": st.column_config.LinkColumn(),
+            "Preço (USD)": st.column_config.NumberColumn(format="$%.2f"),
+            "Dist. Escola (km)": st.column_config.NumberColumn(format="%.1f km"),
+            "Dist. Supermercado (km)": st.column_config.NumberColumn(format="%.1f km"),
+        }
     )#
 else:
     st.info("Nenhum imóvel encontrado com os filtros aplicados.")
